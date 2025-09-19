@@ -1,17 +1,32 @@
 // imports from obsidian API
-import { Notice, Plugin, TFile, TFolder, requestUrl,moment, MarkdownPreviewRenderer, MarkdownPreviewView, MarkdownRenderer, Component} from 'obsidian';
+import {
+	Notice,
+	Plugin,
+	TFile,
+	TFolder,
+	requestUrl,
+	moment,
+	MarkdownPreviewRenderer,
+	MarkdownPreviewView,
+	MarkdownRenderer,
+	Component
+} from 'obsidian';
 
 // modules that are part of the plugin
-import { AssetHandler } from 'src/plugin/asset-loaders/asset-handler';
-import { Settings, SettingsPage } from 'src/plugin/settings/settings';
-import { HTMLExporter } from 'src/plugin/exporter';
-import { Path } from 'src/plugin/utils/path';
-import { ExportModal } from 'src/plugin/settings/export-modal';
-import { _MarkdownRendererInternal, ExportLog, MarkdownRendererAPI } from 'src/plugin/render-api/render-api';
-import { DataviewRenderer } from './render-api/dataview-renderer';
-import { Website } from './website/website';
-import { i18n } from './translations/language';
-
+import {AssetHandler} from 'src/plugin/asset-loaders/asset-handler';
+import {Settings, SettingsPage} from 'src/plugin/settings/settings';
+import {HTMLExporter} from 'src/plugin/exporter';
+import {Path} from 'src/plugin/utils/path';
+import {ExportModal} from 'src/plugin/settings/export-modal';
+import {_MarkdownRendererInternal, ExportLog, MarkdownRendererAPI} from 'src/plugin/render-api/render-api';
+import {DataviewRenderer} from './render-api/dataview-renderer';
+import {Website} from './website/website';
+import {i18n} from './translations/language';
+import {Utils} from "./utils/utils";
+import delay = Utils.delay;
+import {DataviewApi, getAPI} from "obsidian-dataview";
+import DataviewPlugin from "obsidian-dataview/lib/main";
+import {FullIndex} from "obsidian-dataview/lib/data-index";
 
 
 export default class HTMLExportPlugin extends Plugin {
@@ -43,6 +58,22 @@ export default class HTMLExportPlugin extends Plugin {
 		await HTMLExporter.exportVault(new Path(path), true, false);
 	}
 
+	async waitForIndexingToFinish() {
+		while (true) {
+			const allFiles = this.app.vault.getMarkdownFiles();
+			const notIndexed = allFiles.filter(file => !this.app.metadataCache.getFileCache(file));
+
+			if (notIndexed.length === 0) {
+				console.log("Indexing is finished.");
+				break;
+			} else {
+				console.log(`Indexing not finished: waiting for ${notIndexed.length} files...`);
+				await delay(500);
+			}
+
+		}
+	}
+
 	async onload() {
 		console.log("Loading webpage-html-export plugin");
 		this.checkForUpdates();
@@ -71,6 +102,46 @@ export default class HTMLExportPlugin extends Plugin {
 				HTMLExporter.export(true);
 			},
 		});
+
+		this.registerObsidianProtocolHandler("webpage-export", async (e) => {
+			console.log("STARTING")
+			const app = this.app;
+			function runWhenLayoutReady(f: () => void) {
+				if (!app.workspace.layoutReady) {
+					console.log("Layout isn't ready; queuing!");
+					app.workspace.onLayoutReady(() => {
+						f();
+					})
+				} else {
+					console.log("Layout is ready; starting!");
+					f();
+				}
+			}
+			try {
+				/*while (!this.app.metadataCache.) {
+					console.log("Awaiting indexing...");
+					await delay(500);
+				}*/
+				runWhenLayoutReady(async () => {
+					const t = getAPI(app) as DataviewApi | undefined;
+					if (t && !(t.index as FullIndex).initialized) {
+						console.log("Index is not initialized, waiting!");
+						// @ts-ignore
+						app.metadataCache.on("dataview:index-ready", async () => {
+							await HTMLExporter.export(true);
+							console.log("STOPPED");
+						});
+					} else {
+						console.log("Index is initialized, running!");
+						await HTMLExporter.export(true);
+						console.log("STOPPED");
+					}
+				});
+			} catch (e) {
+				console.log("ERROR WHILE EXECUTING: ", e)
+				console.trace(e)
+			}
+		})
 
 		this.addCommand({
 			id: "export-html-current",
@@ -120,13 +191,13 @@ export default class HTMLExportPlugin extends Plugin {
 							} else {
 								ExportLog.error(
 									"File is not a TFile or TFolder! Invalid type: " +
-										typeof file +
-										""
+									typeof file +
+									""
 								);
 								new Notice(
 									"File is not a File or Folder! Invalid type: " +
-										typeof file +
-										"",
+									typeof file +
+									"",
 									5000
 								);
 							}

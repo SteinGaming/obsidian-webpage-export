@@ -36,6 +36,7 @@ export interface FileData
 {
 	createdTime: number;
 	modifiedTime: number;
+	hash: string | null,
 	sourceSize: number;
 	sourcePath: string;
 	exportPath: string;

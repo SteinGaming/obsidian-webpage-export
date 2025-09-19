@@ -754,7 +754,7 @@ export namespace _MarkdownRendererInternal {
 	}
 
 	async function renderExcalidraw(view: any, options: MarkdownRendererOptions): Promise<HTMLElement | undefined> {
-		await delay(500);
+		await delay(1000);
 
 		// @ts-ignore
 		const scene = view.excalidrawData.scene;

@@ -6,6 +6,7 @@ import { Website } from "src/plugin/website/website";
 import { ExportLog, MarkdownRendererAPI } from "src/plugin/render-api/render-api";
 import { ExportInfo, ExportModal } from "src/plugin/settings/export-modal";
 import { Webpage } from "./website/webpage";
+import {Mutex} from "async-mutex";
 
 export class HTMLExporter
 {
@@ -18,7 +19,7 @@ export class HTMLExporter
 			return await modal.open();
 		}
 		
-		const files = Settings.exportOptions.filesToExport[0];
+		const files = Settings.exportOptions.filesToExport;
 		const path = overrideExportPath ?? new Path(Settings.exportOptions.exportPath);
 
 		if ((files.length == 0 && overrideFiles == undefined) || !path.exists || !path.isAbsolute || !path.isDirectory)
@@ -32,8 +33,12 @@ export class HTMLExporter
 		return undefined;
 	}
 
+
+	public static mutex = new Mutex();
 	public static async export(usePreviousSettings: boolean = true, overrideFiles: TFile[] | undefined = undefined, overrideExportPath: Path | undefined = undefined)
 	{
+		if (this.mutex.isLocked()) return;
+		const releaser = await this.mutex.acquire();
 		const info = await this.updateSettings(usePreviousSettings, overrideFiles, overrideExportPath);
 		if ((!info && !usePreviousSettings) || (info && info.canceled)) return;
 
@@ -45,6 +50,7 @@ export class HTMLExporter
 		if (!website) return;
 		if (Settings.openAfterExport) Utils.openPath(exportPath);
 		new Notice("✅ Finished HTML Export:\n\n" + exportPath, 5000);
+		releaser();
 	}
 
 	public static async exportFiles(files: TFile[], destination: Path, saveFiles: boolean, deleteOld: boolean) : Promise<Website | undefined>

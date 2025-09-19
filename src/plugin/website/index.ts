@@ -14,6 +14,8 @@ import { AssetLoader } from "src/plugin/asset-loaders/base-asset";
 import { FileData, WebpageData, WebsiteData } from "src/shared/website-data";
 import { Utils } from "src/plugin/utils/utils";
 import { Shared } from "src/shared/shared";
+import { createHash } from 'crypto';
+
 import { WebpageTemplate } from "./webpage-template";
 
 export class Index
@@ -24,7 +26,7 @@ export class Index
 	private exportOptions: ExportPipelineOptions;
 
 	private stopWords = ["a", "about", "actually", "almost", "also", "although", "always", "am", "an", "and", "any", "are", "as", "at", "be", "became", "become", "but", "by", "can", "could", "did", "do", "does", "each", "either", "else", "for", "from", "had", "has", "have", "hence", "how", "i", "if", "in", "is", "it", "its", "just", "may", "maybe", "me", "might", "mine", "must", "my", "mine", "must", "my", "neither", "nor", "not", "of", "oh", "ok", "when", "where", "whereas", "wherever", "whenever", "whether", "which", "while", "who", "whom", "whoever", "whose", "why", "will", "with", "within", "without", "would", "yes", "yet", "you", "your"];
-	private minisearchOptions = 
+	private minisearchOptions =
 	{
 		idField: 'path',
 		fields: ['title', 'aliases', 'headers', 'tags', 'path', 'content'],
@@ -59,9 +61,8 @@ export class Index
 		{
 			// try to load website data
 			const metadataPath = this.website.destination.join(AssetHandler.libraryPath).joinString(Shared.metadataFileName);
-	
 			const metadata = await metadataPath.readAsString();
-			if (metadata) 
+			if (metadata)
 			{
 				this.oldWebsiteData = JSON.parse(metadata) as WebsiteData;
 				this.websiteData = JSON.parse(metadata) as WebsiteData;
@@ -74,7 +75,7 @@ export class Index
 				this.websiteData = {} as WebsiteData;
 				this.websiteData.createdTime = Date.now();
 			}
-			
+
 			// default values
 			if (!this.websiteData.shownInTree) this.websiteData.shownInTree = [];
 			if (!this.websiteData.attachments) this.websiteData.attachments = [];
@@ -82,7 +83,7 @@ export class Index
 			if (!this.websiteData.webpages) this.websiteData.webpages = {};
 			if (!this.websiteData.fileInfo) this.websiteData.fileInfo = {};
 			if (!this.websiteData.sourceToTarget) this.websiteData.sourceToTarget = {};
-			this.websiteData.featureOptions = 
+			this.websiteData.featureOptions =
 			{
 				backlinks: options.backlinkOptions,
 				tags: options.tagOptions,
@@ -99,7 +100,7 @@ export class Index
 				rss: options.rssOptions,
 				linkPreview: options.linkPreviewOptions,
 			};
-			
+
 			// set global values
 			this.websiteData.modifiedTime = Date.now();
 			this.websiteData.siteName = this.website.exportOptions.siteName ?? "";
@@ -118,7 +119,7 @@ export class Index
 
 		// load current index or create a new one if it doesn't exist
 		try
-		{			
+		{
 			const indexPath = this.website.destination.join(AssetHandler.libraryPath).joinString(Shared.searchIndexFileName);
 			const indexJson = await indexPath.readAsString();
 			if (indexJson)
@@ -194,7 +195,7 @@ export class Index
 				{ "dc:creator": author },
 			]
 		});
-		
+
 		for (const page of this.webpages)
 		{
 			const title = page.title;
@@ -207,7 +208,7 @@ export class Index
 			const description = page.outputData.descriptionOrShortenedContent;
 
 			this.rssFeed.item(
-			{ 
+			{
 				title: title,
 				description: description,
 				url: url,
@@ -215,7 +216,7 @@ export class Index
 				date: date,
 				enclosure: hasMedia ? { url: media } : undefined,
 				author: author,
-				custom_elements: 
+				custom_elements:
 				[
 					hasMedia ? { "content:encoded": `<figure><img src="${media}"></figure>` } : undefined,
 				]
@@ -237,11 +238,11 @@ export class Index
 			// filter out deleted files and remove duplicated items favoring the new rss
 			oldItems = oldItems.filter((oldItem) => !this.deletedFiles.includes(oldItem.querySelector("guid")?.textContent ?? ""));
 			oldItems = oldItems.filter((oldItem) => !newItems.some((newItem) => newItem.querySelector("guid")?.textContent == oldItem.querySelector("guid")?.textContent));
-			
+
 			// remove all items from new rss
 			newItems.forEach((item) => item.remove());
-			
-			
+
+
 			// add items back to new rss with old items
 			newItems = newItems.concat(oldItems);
 			const channel = rssDocNew.querySelector("channel");
@@ -262,6 +263,7 @@ export class Index
 		const key = file.targetPath.path;
 		if(!this.hadFile(key))
 		{
+			console.log("Website didn't have file: " + key);
 			this.newFiles.push(file);
 			newFile = true;
 		}
@@ -270,8 +272,22 @@ export class Index
 			const oldData = this.getOldFile(key);
 			if (oldData)
 			{
-				if (oldData.modifiedTime != file.sourceStat.mtime || oldData.sourceSize != file.sourceStat.size)
+				if (!this.website.destination.join(file.targetPath).exists) {
+					console.log("Outdated file: " + key + "; Reason: Target file " + file.targetPath + " does not exists");
+					this.updatedFiles.push(file);
+					updatedFile = true;
+				}
+				else if (oldData.hash !== null)
 				{
+					const data = await app.vault.cachedRead(<TFile>file.source);
+					const hash = createHash("md5").update(data, "utf-8").digest("hex");
+					if (hash !== oldData.hash) {
+						console.log("Outdated file: " + key + "; Reason: Hash of original " + oldData.hash + " does not match target " + hash);
+						this.updatedFiles.push(file);
+						updatedFile = true;
+					}
+				} else {
+					console.error(`[ERROR] Old hash did not exist for ${oldData.sourcePath}! Adding it to outdated files anyway!`);
 					this.updatedFiles.push(file);
 					updatedFile = true;
 				}
@@ -324,7 +340,7 @@ export class Index
 			}
 			else
 			{
-				this.updateAttachment(file);
+				await this.updateAttachment(file);
 			}
 		}
 	}
@@ -379,7 +395,7 @@ export class Index
 		{
 			return this.sourceToAttachment.get(sourcePath) ?? this.sourceToWebpage.get(sourcePath);
 		}
-		
+
 		return this.sourceToWebpage.get(sourcePath) ?? this.sourceToAttachment.get(sourcePath);
 	}
 
@@ -447,7 +463,7 @@ export class Index
 			webpageInfo.fullURL = webpage.outputData.fullURL;
 			webpageInfo.pathToRoot = webpage.outputData.pathToRoot == "" ? "." : webpage.outputData.pathToRoot;
 			webpageInfo.attachments = webpage.attachments.map((download) => download.targetPath.path);
-			
+
 			webpageInfo.createdTime = webpage.source.stat.ctime;
 			webpageInfo.modifiedTime = webpage.source.stat.mtime;
 			webpageInfo.sourceSize = webpage.source.stat.size;
@@ -464,6 +480,12 @@ export class Index
 
 			// get file info version of the webpage
 			const fileInfo: FileData = {} as FileData;
+			const data = await new Path(webpageInfo.sourcePath).readAsString();
+			if (!data) {
+				console.log(`Could not read the data from Webpage ${webpageInfo.sourcePath}. Hash will be set to null!`);
+				fileInfo.hash = null;
+			} else
+				fileInfo.hash = createHash("md5").update(data, "utf-8").digest("hex");
 			fileInfo.createdTime = webpageInfo.createdTime;
 			fileInfo.modifiedTime = webpageInfo.modifiedTime;
 			fileInfo.sourceSize = webpageInfo.sourceSize;
@@ -474,7 +496,7 @@ export class Index
 			fileInfo.backlinks = webpageInfo.backlinks;
 			fileInfo.type = webpageInfo.type;
 			fileInfo.data = null;
-			
+
 
 			this.websiteData.webpages[webpageInfo.exportPath] = webpageInfo;
 			this.websiteData.fileInfo[webpageInfo.exportPath] = fileInfo;
@@ -487,7 +509,7 @@ export class Index
 		if (this.minisearch)
 		{
 			const webpagePath = webpage.targetPath.path;
-			if (this.minisearch.has(webpagePath)) 
+			if (this.minisearch.has(webpagePath))
 			{
 				this.minisearch.discard(webpagePath);
 			}
@@ -519,7 +541,7 @@ export class Index
 		await this.addWebpageToMinisearch(webpage);
 	}
 
-	private addAttachmentToWebsiteData(attachment: Attachment): string
+	private async addAttachmentToWebsiteData(attachment: Attachment): Promise<string>
 	{
 		const exportPath = attachment.targetPath.path;
 		const key = exportPath;
@@ -527,6 +549,17 @@ export class Index
 		if (this.websiteData)
 		{
 			const fileInfo: FileData = {} as FileData;
+
+			let data: string | undefined;
+			if (attachment.sourcePath !== undefined)
+				data = await new Path(attachment.sourcePath).readAsString();
+			else data = undefined;
+
+			if (!data) {
+				console.log(`Could not read the data from Attachment ${attachment.sourcePath}. Hash will be set to null!`);
+				fileInfo.hash = null;
+			} else
+				fileInfo.hash = createHash("md5").update(data, "utf-8").digest("hex");
 			fileInfo.createdTime = attachment.sourceStat.ctime;
 			fileInfo.modifiedTime = attachment.sourceStat.mtime;
 			fileInfo.sourceSize = attachment.sourceStat.size;
@@ -551,9 +584,9 @@ export class Index
 		return key;
 	}
 
-	private updateAttachment(attachment: Attachment)
+	private async updateAttachment(attachment: Attachment)
 	{
-		this.addAttachmentToWebsiteData(attachment);
+		await this.addAttachmentToWebsiteData(attachment);
 
 		if (!this.attachments.includes(attachment))
 		{
@@ -575,7 +608,7 @@ export class Index
 
 		if (this.minisearch)
 		{
-			if (this.minisearch.has(key)) 
+			if (this.minisearch.has(key))
 			{
 				this.minisearch.discard(key);
 			}

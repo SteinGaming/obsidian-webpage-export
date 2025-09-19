@@ -232,7 +232,7 @@ export class Website
 	{
 		if (files) await this.load(files);
 
-		console.log("Creating website with files:\n" + this.sourceFiles.map(f => f.path).join("\n"));
+		console.log("Creating website with files:\n" + this.sourceFiles.map(f => f.path).join(", "));
 
 		await this.buildTemplate();
 		
