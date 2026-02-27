@@ -1,15 +1,16 @@
 #!/bin/bash
 
-if [[ -n EXPORT_ENTIRE_VAULT ]]; then
-  # Copy the plugin to the vault
-  mkdir -p /vault/.obsidian/plugins/webpage-html-export
-  cp /plugin/* /vault/.obsidian/plugins/webpage-html-export/
+PLUGIN_DIR="/vault/.obsidian/plugins/webpage-html-export"
+if [[ ! -d "$PLUGIN_DIR" ]]; then
+  # Copy the plugin to the vault if it doesn't exist
+  mkdir -p "$PLUGIN_DIR"
+  cp /plugin/* "$PLUGIN_DIR/"
 fi
 
 RUST_LOG=debug xvfb-run electron-injector \
   --delay=5000 \
   --script=/export-vault.mjs \
-  obsidian \
+  /opt/obsidian/obsidian \
     --arg=--remote-allow-origins=* \
     --arg=--no-sandbox \
     --arg=--no-xshm \
